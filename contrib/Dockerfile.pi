@@ -1,0 +1,40 @@
+# Cross compilation environment for librespot
+# Build the docker image from the root of the project with the following command :
+# $ docker build -t librespot-cross -f contrib/Dockerfile .
+#
+# The resulting image can be used to build librespot for linux x86_64, armhf and armel.
+# $ docker run -v /tmp/librespot-build:/build librespot-cross
+#
+# To build librespot for armhf that also works on Raspberry Pi 1/Zero, run:
+# $ docker run -v /tmp/librespot-build:/build librespot-cross /src/contrib/docker-build-pi-armv6hf.sh
+#
+# The compiled binaries will be located in /tmp/librespot-build
+#
+# If only one architecture is desired, cargo can be invoked directly with the appropriate options :
+# $ docker run -v /tmp/librespot-build:/build librespot-cross cargo build --release --no-default-features --features "alsa-backend"
+# $ docker run -v /tmp/librespot-build:/build librespot-cross cargo build --release --target arm-unknown-linux-gnueabihf --no-default-features --features "alsa-backend"
+# $ docker run -v /tmp/librespot-build:/build librespot-cross cargo build --release --target arm-unknown-linux-gnueabi --no-default-features --features "alsa-backend"
+#
+
+FROM debian:stretch
+
+RUN apt-get update
+RUN apt-get install -y curl git build-essential
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="/root/.cargo/bin/:${PATH}"
+RUN rustup target add arm-unknown-linux-gnueabihf
+
+RUN mkdir /.cargo
+
+ARG PI_TOOLS_VERSION=5caa7046982f0539cf5380f94da04b31129ed521
+RUN mkdir /pi-tools
+RUN curl -L https://github.com/raspberrypi/tools/archive/$PI_TOOLS_VERSION.tar.gz | tar xz --strip-components 1 -C /pi-tools
+
+RUN mkdir /build
+ENV CARGO_TARGET_DIR /build
+ENV CARGO_HOME /build/cache
+
+ADD . /src
+WORKDIR /src
+CMD ["/src/contrib/docker-build-pi-armv6hf.sh"]
