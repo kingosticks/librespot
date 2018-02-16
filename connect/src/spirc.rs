@@ -11,7 +11,7 @@ use core::util::SeqGenerator;
 use core::version;
 
 use protocol;
-use protocol::spirc::{DeviceState, Frame, MessageType, PlayStatus, State};
+use protocol::spirc::{DeviceState, Frame, MessageType, PlayStatus, State, TrackRef};
 
 use playback::mixer::Mixer;
 use playback::player::Player;
@@ -529,6 +529,23 @@ impl SpircTask {
         }
     }
 
+    fn remove_queued_tracks(&mut self, from_index : usize) -> Vec<TrackRef> {
+        let mut queue_tracks = Vec::new();
+        let tracks = self.state.mut_track();
+        while from_index < tracks.len() && tracks[from_index].get_queued() {
+            queue_tracks.push(tracks.remove(from_index));
+        }
+        queue_tracks
+    }
+
+    fn insert_tracks(&mut self, tracks : Vec<TrackRef>, at_index : usize) {
+        let mut pos = at_index;
+        for track in tracks.into_iter() {
+            self.state.mut_track().insert(pos, track);
+            pos += 1;
+        }
+    }
+
     fn consume_queued_track(&mut self) -> usize {
         // Removes current track if it is queued
         // Returns the index of the next track
@@ -562,30 +579,20 @@ impl SpircTask {
             // Queued tracks always follow the currently playing track.
             // They should not be considered when calculating the previous
             // track so extract them beforehand and reinsert them after it.
-            let mut queue_tracks = Vec::new();
-            {
-                let queue_index = self.consume_queued_track();
-                let tracks = self.state.mut_track();
-                while queue_index < tracks.len() && tracks[queue_index].get_queued() {
-                    queue_tracks.push(tracks.remove(queue_index));
-                }
-            }
-            let current_index = self.state.get_playing_track_index();
+            let queue_index = self.consume_queued_track();
+            let queue_tracks = self.remove_queued_tracks(queue_index);
+            let current_index = self.state.get_playing_track_index() as usize;
             let new_index = if current_index > 0 {
                 current_index - 1
             } else if self.state.get_repeat() {
-                self.state.get_track().len() as u32 - 1
+                self.state.get_track().len() - 1
             } else {
                 0
             };
             // Reinsert queued tracks after the new playing track.
-            let mut pos = (new_index + 1) as usize;
-            for track in queue_tracks.into_iter() {
-                self.state.mut_track().insert(pos, track);
-                pos += 1;
-            }
+            self.insert_tracks(queue_tracks, new_index + 1);
 
-            self.state.set_playing_track_index(new_index);
+            self.state.set_playing_track_index(new_index as u32);
             self.state.set_position_ms(0);
             self.state.set_position_measured_at(now_ms() as u64);
 
