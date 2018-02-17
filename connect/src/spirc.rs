@@ -446,14 +446,14 @@ impl SpircTask {
             MessageType::kMessageTypeShuffle => {
                 self.state.set_shuffle(frame.get_state().get_shuffle());
                 if self.state.get_shuffle() {
-                    let current_index = self.state.get_playing_track_index();
-                    {
-                        let tracks = self.state.mut_track();
-                        tracks.swap(0, current_index as usize);
-                        if let Some((_, rest)) = tracks.split_first_mut() {
-                            rand::thread_rng().shuffle(rest);
-                        }
-                    }
+                    // Move current track and queued tracks to the front before
+                    // shuffling the remaining tracks.
+                    let current_index = self.state.get_playing_track_index() as usize;
+                    let mut tracks = Vec::new();
+                    tracks.push(self.state.mut_track().remove(current_index));
+                    tracks.append(&mut self.remove_queued_tracks(current_index));
+                    rand::thread_rng().shuffle(self.state.mut_track());
+                    self.insert_tracks(tracks, 0);
                     self.state.set_playing_track_index(0);
                 } else {
                     let context = self.state.get_context_uri();
