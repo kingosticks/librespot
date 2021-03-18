@@ -1,14 +1,13 @@
 use super::{Open, Sink};
 use gst::prelude::*;
 use gst::*;
-use std::sync::mpsc::{sync_channel, SyncSender};
 use std::{io, thread};
 use zerocopy::*;
 
 #[allow(dead_code)]
 pub struct GstreamerSink {
-    tx: SyncSender<Vec<u8>>,
     pipeline: gst::Pipeline,
+    appsrc: gst_app::AppSrc,
 }
 
 impl Open for GstreamerSink {
@@ -35,32 +34,6 @@ impl Open for GstreamerSink {
         let appsrc: gst_app::AppSrc = appsrce
             .dynamic_cast::<gst_app::AppSrc>()
             .expect("Couldn't cast AppSrc element at runtime!");
-        let bufferpool = gst::BufferPool::new();
-        let appsrc_caps = appsrc.get_caps().expect("Couldn't get appsrc caps");
-        let mut conf = bufferpool.get_config();
-        conf.set_params(Some(&appsrc_caps), 8192, 0, 0);
-        bufferpool
-            .set_config(conf)
-            .expect("Couldn't configure the buffer pool");
-        bufferpool
-            .set_active(true)
-            .expect("Couldn't activate buffer pool");
-
-        let (tx, rx) = sync_channel::<Vec<u8>>(128);
-        thread::spawn(move || {
-            for data in rx {
-                let buffer = bufferpool.acquire_buffer(None);
-                if !buffer.is_err() {
-                    let mut okbuffer = buffer.unwrap();
-                    let mutbuf = okbuffer.make_mut();
-                    mutbuf.set_size(data.len());
-                    mutbuf
-                        .copy_from_slice(0, data.as_bytes())
-                        .expect("Failed to copy from slice");
-                    let _eat = appsrc.push_buffer(okbuffer);
-                }
-            }
-        });
 
         thread::spawn(move || {
             let thread_mainloop = mainloop;
@@ -91,8 +64,8 @@ impl Open for GstreamerSink {
             .expect("Unable to set the pipeline to the `Playing` state");
 
         GstreamerSink {
-            tx: tx,
             pipeline: pipeline,
+            appsrc: appsrc,
         }
     }
 }
@@ -105,11 +78,17 @@ impl Sink for GstreamerSink {
         Ok(())
     }
     fn write(&mut self, data: &[i16]) -> io::Result<()> {
-        // Copy expensively (in to_vec()) to avoid thread synchronization
-        let deighta: &[u8] = data.as_bytes();
-        self.tx
-            .send(deighta.to_vec())
-            .expect("tx send failed in write function");
+        let data_bytes: &[u8] = data.as_bytes();
+
+        let mut buffer =
+            gst::Buffer::with_size(data_bytes.len())
+            .expect("Failed to allocate Buffer");
+        buffer
+            .make_mut()
+            .copy_from_slice(0, data_bytes)
+            .expect("Failed to copy from slice");
+        self.appsrc.push_buffer(buffer).expect("Failed to push buffer");
+
         Ok(())
     }
 }
