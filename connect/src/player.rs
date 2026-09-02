@@ -1,7 +1,5 @@
-use crate::{
-    core::SpotifyUri,
-    playback::player::{Player, PlayerEventChannel},
-};
+use crate::core::SpotifyUri;
+use librespot_playback::player::{Player, PlayerEventChannel};
 
 /// Playback interface required by Spotify Connect.
 ///
